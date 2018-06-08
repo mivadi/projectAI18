@@ -2,6 +2,9 @@ import torch
 from torch import nn
 from torch.nn import functional as F 
 
+# encoder -> make options for gaussian/ logit etc.
+# decoder -> binary -> look into given code
+# implement the gumbel softmax
 
 class VAE(nn.Module):
     
@@ -13,9 +16,10 @@ class VAE(nn.Module):
         self.hidden2mean = nn.Linear(300, 300)
         self.hidden2logvar = nn.Linear(300, 300)
         
-        # decoder:
+        # decoder (discrete/binary output):
         self.latent2hidden = nn.Linear(300, 300)
         self.hidden2output = nn.Linear(300, sample_dim)
+        # for a continuous output -> make two hidden2out (one for mean and one for covariance)
 
     def encode(self, x):
         x = F.tanh(self.input2hidden(x))
