@@ -1,32 +1,48 @@
+import torch
 from torch import nn
 from torch.nn import functional as F 
 
 
 class VAE(nn.Module):
-    def __init__(self, fc1_dims, fc21_dims, fc22_dims, fc3_dims, fc4_dims):
+    
+    def __init__(self, sample_dim):
         super(VAE, self).__init__()
 
-        self.fc1 = nn.Linear(*fc1_dims)
-        self.fc21 = nn.Linear(*fc21_dims)
-        self.fc22 = nn.Linear(*fc22_dims)
-        self.fc3 = nn.Linear(*fc3_dims)
-        self.fc4 = nn.Linear(*fc4_dims)
+        # encoder:
+        self.input2hidden = nn.Linear(sample_dim ,300)
+        self.hidden2mean = nn.Linear(300, 300)
+        self.hidden2logvar = nn.Linear(300, 300)
+        
+        # decoder:
+        self.latent2hidden = nn.Linear(300, 300)
+        self.hidden2output = nn.Linear(300, sample_dim)
 
     def encode(self, x):
-        embedding = F.relu(self.fc1(x))
-        mu = F.sigmoid(self.fc21(embedding))
-        logvar = F.tanh(self.fc22(embedding))
+        x = F.tanh(self.input2hidden(x))
+        mu = self.hidden2mean(x)
+        logvar = self.hidden2logvar(x)
         return mu, logvar
 
+    # this is what they did in their git
+    # def reparameterize(self, mu, logvar):
+    #         std = logvar.mul(0.5).exp_()
+    #         if self.args.cuda:
+    #             eps = torch.cuda.FloatTensor(std.size()).normal_()
+    #         else:
+    #             eps = torch.FloatTensor(std.size()).normal_()
+    #         eps = Variable(eps)
+    #         return eps.mul(std).add_(mu)
+    
     def reparameterize(self, mu, logvar):
+#         return mu + torch.exp(torch.div(logvar, 2)) * torch.randn_like(logvar)
         epsilon = torch.normal(torch.zeros(logvar.size()), torch.ones(logvar.size()))
-        sigma = torch.sqrt(torch.exp(logvar))
+        sigma = torch.exp(torch.div(logvar, 2))
         z = mu + epsilon * logvar
         return z
 
     def decode(self, z):
-        x_hat =  F.sigmoid(self.fc4(self.fc3(z)))
-        return x_hat
+        z = F.tanh(self.latent2hidden(z))
+        return F.sigmoid(self.hidden2output(z))
 
     def forward(self, x):
         x = x.view(-1, 784)
