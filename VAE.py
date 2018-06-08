@@ -1,6 +1,7 @@
 from torch import nn
 from torch.nn import functional as F 
 
+
 class VAE(nn.Module):
     def __init__(self, fc1_dims, fc21_dims, fc22_dims, fc3_dims, fc4_dims):
         super(VAE, self).__init__()
