@@ -19,4 +19,4 @@ def KL_loss(mu, logvar):
     return torch.sum(loss)
 
 def loss_function(x_hat, x, mu, logvar):
-    return log_bernoulli_loss(x_hat, x) + KL_loss(mu, logvar)
+    return log_bernoulli_loss(x_hat, x) #+ KL_loss(mu, logvar)
