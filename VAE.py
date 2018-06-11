@@ -18,7 +18,7 @@ class VAE(nn.Module):
 
         # initialize hidden layers and define activation function:
 
-        if self.method == 'Gaussian' or self.method == 'logit-normal':
+        if self.method == 'Gaussian':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
             self.hidden2parameter2 = nn.Linear(hidden_dim, latent_dim)
             self.encoder_activation = nn.Hardtanh(min_val=-4.5,max_val=0)
@@ -62,26 +62,21 @@ class VAE(nn.Module):
             z = parameter1 + epsilon * std
 
         elif self.method == 'logit-normal':
-
-            print("not implemented")
-       #    epsilon = torch.FloatTensor(parameter2.size()).normal_()
-    #       std = torch.exp(torch.div(parameter2, 2))
-    #       y = parameter1 + epsilon * std
-    #       numerator = torch.exp(y)
-    #       denominator = 1 + torch.sum(numerator, -1)
-
-    # # concat the vector
-    #       z = torch.div(torch.cat((numerator), -1), denominator)
+            epsilon = torch.FloatTensor(parameter2.size()).normal_()
+            std = torch.exp(torch.div(parameter2, 2))
+            y = parameter1 + epsilon * std
+            numerator = torch.exp(y)
+            denominator = 1 + torch.sum(numerator, 1).unsqueeze(1)
+            z = torch.div(torch.cat((numerator, torch.ones((numerator.size(0),1))), 1), denominator)
 
         elif self.method == 'Gumbel-softmax' or self.method == 'concrete':
 
-            print("not implemented")
             # parameter1 = log location, parameter2 = temperature/lambda
-            # gumbel_distr = d.gumbel.Gumbel(parameter1, parameter2)
-            # epsilon = gumbel_distr.sample(sample_shape=parameter1.size())
-            # numerator = torch.exp(torch.div(parameter1 + epsilon, parameter2))
-            # denominator = torch.sum(numerator, -1)
-            # z = torch.div(numerator, denominator)
+            gumbel_distr = d.gumbel.Gumbel(0, 1)
+            epsilon = gumbel_distr.sample(sample_shape=parameter1.size())
+            numerator = torch.exp(torch.div(parameter1 + epsilon, parameter2))
+            denominator = torch.sum(numerator, 1).unsqueeze(1)
+            z = torch.div(numerator, denominator)
 
         return z
 
