@@ -18,5 +18,9 @@ def KL_loss(mu, logvar):
     loss = (log_D - sum_logvar + norm_var + norm_mu - D)/2
     return torch.sum(loss)
 
+def KL_loss_logit(mu, logvar):
+    loss=1000
+    return loss
+
 def loss_function(x_hat, x, mu, logvar):
     return log_bernoulli_loss(x_hat, x) #+ KL_loss(mu, logvar)

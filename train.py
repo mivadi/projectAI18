@@ -1,7 +1,7 @@
 import torch
 from torch.autograd import Variable
 
-from loss import *
+# from loss import *
 from VAE import *
 
 
@@ -11,8 +11,10 @@ def train(epoch, train_loader, model, optimizer):
     for batch_idx, (data, _) in enumerate(train_loader):
         data = Variable(data)
         optimizer.zero_grad()
-        recon_batch, mean, logvar = model(data)
-        loss = loss_function(recon_batch, data.view(-1, 784), mean, logvar)
+        # recon_batch, mean, logvar = model(data)
+        recon_batch, z, z_parameter1, z_parameter2 = model(data)
+        loss = model.total_loss(data.view(-1, 784), recon_batch, z, z_parameter1, z_parameter2)
+        # loss = model.loss_function(recon_batch, data.view(-1, 784), mean, logvar)
         loss.backward()
         train_loss += loss.data
         optimizer.step()
