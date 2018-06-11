@@ -66,22 +66,25 @@ class VAE(nn.Module):
 
 	    elif self.method == 'logit-normal':
 
-	    	epsilon = torch.FloatTensor(parameter2.size()).normal_()
-        	std = torch.exp(torch.div(parameter2, 2))
-        	y = parameter1 + epsilon * std
-        	numerator = torch.exp(y)
-        	denominator = 1 + torch.sum(numerator, -1)
+	    	print("not implemented")
+	   #  	epsilon = torch.FloatTensor(parameter2.size()).normal_()
+    #     	std = torch.exp(torch.div(parameter2, 2))
+    #     	y = parameter1 + epsilon * std
+    #     	numerator = torch.exp(y)
+    #     	denominator = 1 + torch.sum(numerator, -1)
 
-    # concat the vector
-        	z = torch.div(torch.cat((numerator), -1), denominator)
+    # # concat the vector
+    #     	z = torch.div(torch.cat((numerator), -1), denominator)
 
 	    elif self.method == 'Gumbel-softmax' or self.method == 'concrete':
+
+	    	print("not implemented")
 	    	# parameter1 = log location, parameter2 = temperature/lambda
-	    	gumbel_distr = d.gumbel.Gumbel(parameter1, parameter2)
-	    	epsilon = gumbel_distr.sample(sample_shape=parameter1.size())
-	    	numerator = torch.exp(torch.div(parameter1 + epsilon, parameter2))
-	    	denominator = torch.sum(numerator, -1)
-	    	z = torch.div(numerator, denominator)
+	    	# gumbel_distr = d.gumbel.Gumbel(parameter1, parameter2)
+	    	# epsilon = gumbel_distr.sample(sample_shape=parameter1.size())
+	    	# numerator = torch.exp(torch.div(parameter1 + epsilon, parameter2))
+	    	# denominator = torch.sum(numerator, -1)
+	    	# z = torch.div(numerator, denominator)
 
         return z
 
