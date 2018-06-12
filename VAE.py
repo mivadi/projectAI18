@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from torch import distributions as d
 from torch.nn import functional as F
+import numpy as np
 
 # global variables
 min_epsilon = 1e-5
@@ -114,8 +115,7 @@ class VAE(nn.Module):
             log_distr = -0.5 * torch.pow(variable, 2 )
 
         elif self.method == 'Gumbel-softmax' or self.method == 'concrete':
-            raise ValueError("not yet implemented")
-            # gumbel(0,1)
+            log_distr = torch.exp(-torch.exp(-z))
 
         return torch.sum(log_distr, 1)
 
@@ -133,7 +133,8 @@ class VAE(nn.Module):
             log_distr = -0.5 * ( parameter2 + torch.pow(variable - parameter1, 2) / torch.exp(parameter2) )
 
         elif self.method == 'Gumbel-softmax' or self.method == 'concrete':
-            raise ValueError("not yet implemented")
+            variable = ( z - parameter1 )/ parameter2
+            log_distr = torch.exp((-variable+ torch.exp(-variable)))/ parameter2
             # gumbel(param1, param2)
 
         return torch.sum(log_distr, 1)
@@ -149,6 +150,8 @@ class VAE(nn.Module):
 
         return - torch.sum(loss)
 
+    
+    
 
     def total_loss(self, x, x_mean, z, z_parameter1, z_parameter2):
 
