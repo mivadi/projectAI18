@@ -11,8 +11,8 @@ def train(epoch, train_loader, model, optimizer):
     for batch_idx, (data, _) in enumerate(train_loader):
         data = Variable(data)
         optimizer.zero_grad()
-        recon_batch, z, z_parameter1, z_parameter2 = model(data)
-        loss = model.total_loss(data.view(-1, 784), recon_batch, z, z_parameter1, z_parameter2)
+        recon_batch, z, z_parameters = model(data)
+        loss = model.total_loss(data.view(-1, 784), recon_batch, z, z_parameters)
         loss.backward()
         train_loss += loss.data
         optimizer.step()
