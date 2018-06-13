@@ -88,7 +88,8 @@ class VAE(nn.Module):
             numerator = torch.exp(torch.div(parameter1 + epsilon, parameter2))
             denominator = torch.sum(numerator, 1).unsqueeze(1)
             z = torch.div(numerator, denominator)
-            # create one-hot vector ????
+
+            # do softmax
 
         return z
 
