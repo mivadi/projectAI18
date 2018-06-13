@@ -46,6 +46,7 @@ class VAE(nn.Module):
 
 
     def _valid_method(self):
+
         method_unknown_text = "The method is unknown; choose 'Gaussian', 'logit-normal', 'Gumbel-softmax' or 'concrete'."
         assert self.method == 'Gaussian' or self.method == 'logit-normal' or self.method == 'Gumbel-softmax' or self.method == 'concrete', method_unknown_text
 
@@ -87,12 +88,15 @@ class VAE(nn.Module):
             numerator = torch.exp(torch.div(parameter1 + epsilon, parameter2))
             denominator = torch.sum(numerator, 1).unsqueeze(1)
             z = torch.div(numerator, denominator)
+            # create one-hot vector ????
 
         return z
 
 
     def decode(self, z):
+
         z = F.tanh(self.latent2hidden(z))
+
         return F.sigmoid(self.hidden2output(z))
 
 
@@ -149,8 +153,6 @@ class VAE(nn.Module):
         loss = torch.sum(x * torch.log(probs) + (1-x) *(torch.log(1-probs)), 1)
 
         return - torch.sum(loss)
-
-    
     
 
     def total_loss(self, x, x_mean, z, z_parameter1, z_parameter2):
@@ -171,3 +173,4 @@ class VAE(nn.Module):
         x_mean = self.decode(z)
 
         return x_mean, z, z_parameter1, z_parameter2
+
