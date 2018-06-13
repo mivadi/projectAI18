@@ -36,7 +36,7 @@ class VAE(nn.Module):
 
         elif self.method == 'Gumbel-softmax' or self.method == 'concrete':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
-            self.hidden2parameter2 = nn.Linear(hidden_dim, 1)
+            self.hidden2parameter2 = nn.Linear(hidden_dim, 1) # set to value (0.5, 1, 10)
             # lambda > 0
             self.encoder_activation = nn.Sigmoid()
 
@@ -121,6 +121,7 @@ class VAE(nn.Module):
 
         elif self.method == 'Gumbel-softmax' or self.method == 'concrete':
             log_distr = torch.exp(-torch.exp(-z))
+            # pi = uniform
 
         return torch.sum(log_distr, 1)
 
