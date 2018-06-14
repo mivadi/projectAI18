@@ -39,7 +39,7 @@ class VAE(nn.Module):
             self.temperature = torch.Tensor([10]) # try different values??? look up in paper????
             # self.hidden2parameter2 = nn.Linear(hidden_dim, 1) # set to value (0.5, 1, 10)
             # lambda > 0
-            # self.encoder_activation = nn.Sigmoid()
+            # self.encoder_activation = F.logsigmoid()
 
         # initialize layers for decoder:
         self.latent2hidden = nn.Linear(latent_dim, hidden_dim)
@@ -60,7 +60,7 @@ class VAE(nn.Module):
             parameter2 = self.encoder_activation(self.hidden2parameter2(x))
             return (parameter1, parameter2)
         else:
-            return parameter1
+            return F.logsigmoid(parameter1)
 
 
     def reparameterize(self, parameters):
@@ -163,12 +163,18 @@ class VAE(nn.Module):
             log_distr = -0.5 * ( parameter2 + torch.pow(variable - parameter1, 2) / torch.exp(parameter2) )
 
         elif self.method == 'Gumbel':
-            parameter1 = parameters
-            variable = ( z - parameter1 )/ self.temperature
-            log_distr = torch.exp((-variable+ torch.exp(-variable)))/ self.temperature
+            log_pi = parameters
+            log_y = torch.log(z)
+            logsumexp = torch.log(torch.sum(torch.exp(log_pi - self.temperature * log_y ), 1) )
+            k = len(z)
+            log_distr = (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum(log_pi + (self.temperature + 1) * log_y, 1)
+            
             # gumbel(param1, param2)
 
-        return torch.sum(log_distr, 1)
+        if(self.method != 'Gumbel'):
+            return torch.sum(log_distr, 1)
+        else: 
+            return log_distr
 
 
     def log_bernoulli_loss(self, x, x_mean):
