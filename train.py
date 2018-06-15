@@ -13,11 +13,13 @@ def train(epoch, train_loader, model, optimizer):
         optimizer.zero_grad()
         recon_batch, z, z_parameters = model(data)
         loss = model.total_loss(data.view(-1, 784), recon_batch, z, z_parameters)
-        for item in model.parameters():
-            print("before backward", item.data)
+        # if epoch == 2:
+        #     for item in model.parameters():
+        #         print("before backward", item.data)
         loss.backward()
-        for item in model.parameters():
-            print("after backward", item.data)
+        # if epoch == 2:
+        #     for item in model.parameters():
+        #         print("after backward", item.data)
         train_loss += loss.data
         optimizer.step()
         if batch_idx % 100 == 0:
@@ -32,11 +34,10 @@ def train(epoch, train_loader, model, optimizer):
     return average_loss
 
 
-def run_train(latent_dim, epochs, method, train_loader):
+def run_train(latent_dim, epochs, method, train_loader, lr):
     # set learning rate, batch size and number of epochs
     sample_dim = 784
     hidden_dim = 300
-    lr = 1e-3
 
     # Init model
     model = VAE(sample_dim, hidden_dim, latent_dim, method)
