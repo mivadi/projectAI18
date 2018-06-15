@@ -11,7 +11,7 @@ max_epsilon = 1.-1e-5
 class VAE(nn.Module):
     
 
-    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian', ):
+    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian'):
         super(VAE, self).__init__()
 
         # set method: Gaussian, logit-normal, Gumbel-softmax/concrete
@@ -37,9 +37,6 @@ class VAE(nn.Module):
         elif self.method == 'Gumbel':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
             self.temperature = torch.Tensor([10]) # try different values??? look up in paper????
-            # self.hidden2parameter2 = nn.Linear(hidden_dim, 1) # set to value (0.5, 1, 10)
-            # lambda > 0
-            # self.encoder_activation = F.logsigmoid()
 
         # initialize layers for decoder:
         self.latent2hidden = nn.Linear(latent_dim, hidden_dim)
@@ -53,6 +50,8 @@ class VAE(nn.Module):
 
 
     def encode(self, x):
+
+        self._valid_method()
 
         x = F.tanh(self.input2hidden(x))
         parameter1 = self.hidden2parameter1(x)
@@ -101,8 +100,6 @@ class VAE(nn.Module):
             numerator = torch.exp(torch.div(parameter1 + epsilon, self.temperature))
             denominator = torch.sum(numerator, 1).unsqueeze(1)
             z = torch.div(numerator, denominator)
-
-            # do softmax
 
         return z
 
