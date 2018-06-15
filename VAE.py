@@ -112,8 +112,9 @@ class VAE(nn.Module):
             gumbel_distr = d.gumbel.Gumbel(0, 1)
             epsilon = gumbel_distr.sample(sample_shape=parameter1.size())
             numerator = torch.exp(torch.div(parameter1 + epsilon, self.temperature))
-            denominator = torch.sum(numerator, 1).unsqueeze(1)
-            z = torch.div(numerator, denominator)
+            # denominator = torch.sum(numerator, 1).unsqueeze(1)
+            # z = torch.div(numerator, denominator)
+            z = numerator
 
         return z
 
@@ -152,9 +153,13 @@ class VAE(nn.Module):
             # temperature: 1
             k = torch.Tensor([z.size(1)])
             log_pi = torch.log( 1 / k )
+            # print ('logpi', log_pi)
             log_z = torch.log(z)
+            # print ('logz', log_z)
             logsumexp = torch.log( torch.sum( torch.exp( log_pi - log_z ) , 1 ) )
+            # print ('logsumexp', logsumexp)
             log_distr = k - 1 - k * logsumexp + torch.sum( log_pi - 2 * log_z , 1 )
+            # print('logdistr', log_distr)
             log_distr = log_distr.unsqueeze(1)
 
         return torch.sum(log_distr, 1)
