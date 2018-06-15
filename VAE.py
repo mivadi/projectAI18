@@ -53,13 +53,27 @@ class VAE(nn.Module):
 
         self._valid_method()
 
-        x = F.tanh(self.input2hidden(x))
+        # print("x1", x)
+
+        x = self.input2hidden(x)
+
+        # print("x2", x)
+
+        x = F.tanh(x)
+
+        # print("x3", x)
+
         parameter1 = self.hidden2parameter1(x)
+
         if self.method != 'Gumbel':
             parameter2 = self.encoder_activation(self.hidden2parameter2(x))
             return (parameter1, parameter2)
         else:
-            return F.logsigmoid(parameter1)
+            # print("parameter1", parameter1)
+            
+            sig =  F.logsigmoid(parameter1)
+            # print("parameter1_sig", sig)
+            return sig
 
 
     def reparameterize(self, parameters):
@@ -115,7 +129,7 @@ class VAE(nn.Module):
 
         log_p_z = self.log_p_z(z)
         log_q_z = self.log_q_z(z, parameters)
-        KL_loss = -(log_p_z - log_q_z)
+        KL_loss = - ( log_p_z - log_q_z )
 
         return KL_loss
 
@@ -134,8 +148,14 @@ class VAE(nn.Module):
             log_distr = -0.5 * torch.pow(variable, 2 )
 
         elif self.method == 'Gumbel':
-            log_distr = torch.exp(-torch.exp(-z))
-            # pi = uniform
+            # uniform location: 1/k
+            # temperature: 1
+            k = torch.Tensor([z.size(1)])
+            log_pi = torch.log( 1 / k )
+            log_z = torch.log(z)
+            logsumexp = torch.log( torch.sum( torch.exp( log_pi - log_z ) , 1 ) )
+            log_distr = k - 1 - k * logsumexp + torch.sum( log_pi - 2 * log_z , 1 )
+            log_distr = log_distr.unsqueeze(1)
 
         return torch.sum(log_distr, 1)
 
@@ -161,17 +181,13 @@ class VAE(nn.Module):
 
         elif self.method == 'Gumbel':
             log_pi = parameters
-            log_y = torch.log(z)
-            logsumexp = torch.log(torch.sum(torch.exp(log_pi - self.temperature * log_y ), 1) )
-            k = len(z)
-            log_distr = (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum(log_pi + (self.temperature + 1) * log_y, 1)
+            log_z = torch.log(z)
+            logsumexp = torch.log(torch.sum(torch.exp(log_pi - self.temperature * log_z ), 1) )
+            k = torch.Tensor([z.size(1)])
+            log_distr = (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum(log_pi + (self.temperature + 1) * log_z, 1)
+            log_distr = log_distr.unsqueeze(1)
             
-            # gumbel(param1, param2)
-
-        if(self.method != 'Gumbel'):
-            return torch.sum(log_distr, 1)
-        else: 
-            return log_distr
+        return torch.sum(log_distr, 1)
 
 
     def log_bernoulli_loss(self, x, x_mean):
@@ -201,6 +217,10 @@ class VAE(nn.Module):
         parameters = self.encode(x)
         z = self.reparameterize(parameters)
         x_mean = self.decode(z)
+        # print("parameters", parameters.data)
+        # print("z", z.data)
+        # print("x_mean", x_mean.data)
+
 
         return x_mean, z, parameters
 
