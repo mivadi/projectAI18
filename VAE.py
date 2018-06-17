@@ -69,9 +69,9 @@ class VAE(nn.Module):
         if self.method != 'Gumbel':
             mean = self.hidden2parameter1(hidden)
             if self.rank1:
-                log_diff = self.encoder_activation(self.hidden2parameter2(hidden))
+                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 approx = self.hidden2parameter3(hidden)
-                return (mean, log_diff, approx)
+                return (mean, logvar, approx)
             else:
                 logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 return (mean, logvar)
@@ -80,18 +80,47 @@ class VAE(nn.Module):
             return log_location
 
 
+    @staticmethod
+    def create_inverse_cov_matrix(logvar, approx):
+
+        diff = torch.exp(logvar)
+        diff_matrix = torch.stack([ torch.diag(d) for d in torch.unbind(diff) ])
+        inv_cov_matrix = diff_matrix + torch.bmm( approx.unsqueeze(2), approx.unsqueeze(1) )
+
+        return inv_cov_matrix
+
+    # def create_eigen_decomposition(matrices):
+
+    #     eigen_vectors, eigen_values = [], []
+
+    #     for m in matrices:
+    #         e, v = torch.eig(m, eigenvectors=True)
+    #         eigenvectors.append(v)
+    #         eigen_values.append(e)
+
+    #     eigen_vectors = torch.stack(eigen_vectors)
+    #     eigen_values = torch.stack(eigen_values)
+
+    #     return eigen_vectors, eigen_values
+
+    # def create_factorization():
+
+    #     eigen_vectors, eigen_values = 
+
+    #     return Sigma
+
+
     def reparameterize(self, parameters):
 
         self._valid_method()
 
         if self.method == 'Gaussian':
             if self.rank1:
-                (mean, log_diff, approx) = parameters
+                (mean, logvar, approx) = parameters
                 epsilon = torch.FloatTensor(mean.size()).normal_()
-                diff = torch.exp(log_diff)
-                diff_matrix = torch.stack([ torch.diag(d) for d in torch.unbind(diff)])
-                cov_matrix = diff_matrix + torch.bmm( approx.unsqueeze(2), approx.unsqueeze(1) )
-                Sigma = torch.stack([ torch.potrf(m) for m in cov_matrix ] )
+                cov_matrix = torch.stack([ torch.inverse(m) for m in torch.unbind(VAE.create_inverse_cov_matrix(logvar, approx)) ])
+                # computes the Cholesky decomposition cov_matrix = Sigma.T @ Sigma = Sigma @ Sigma.T
+                Sigma = torch.stack([ torch.potrf(m) for m in cov_matrix ])
                 z = mean + torch.bmm(Sigma, epsilon.unsqueeze(2)).view(-1, self.latent_dim)
             else:
                 (mean, logvar) = parameters
@@ -171,14 +200,11 @@ class VAE(nn.Module):
 
         if self.method == 'Gaussian':
             if self.rank1:
-                (mean, log_diff, approx) = parameters
-                diff = torch.exp(log_diff)
-                diff_matrix = torch.stack([ torch.diag(d) for d in torch.unbind(diff)])
-                cov_matrix = diff_matrix + torch.bmm( approx.unsqueeze(2), approx.unsqueeze(1) )
-                log_det_cov_matrix = torch.log(torch.stack([ torch.det(m) for m in torch.unbind(cov_matrix) ])) 
-                inverse_cov_matrix = torch.stack([ torch.inverse(m) for m in torch.unbind(cov_matrix)])
+                (mean, logvar, approx) = parameters
+                inverse_cov_matrix = VAE.create_inverse_cov_matrix(logvar, approx)
+                log_det_cov_matrix = torch.log(torch.stack([ torch.det(m) for m in torch.unbind(inverse_cov_matrix) ])) 
                 z_minus_mean = z - mean
-                log_distr = - 0.5 * ( log_det_cov_matrix + torch.bmm(z_minus_mean.unsqueeze(1), torch.bmm( inverse_cov_matrix, z_minus_mean.unsqueeze(2) ) ).view(-1, 1) )
+                log_distr = 0.5 * ( log_det_cov_matrix - torch.bmm(z_minus_mean.unsqueeze(1), torch.bmm( inverse_cov_matrix, z_minus_mean.unsqueeze(2) ) ).view(-1, 1) )
             else:
                 (mean, logvar) = parameters
                 log_distr = - 0.5 * ( logvar + torch.pow(z - mean, 2) / torch.exp(logvar) )
@@ -220,8 +246,6 @@ class VAE(nn.Module):
         log_bernoulli_loss = self.log_bernoulli_loss(x, x_mean)
         KL_loss = self.KL_loss(z, z_parameters)
         loss = log_bernoulli_loss + KL_loss
-
-        print(torch.mean(log_bernoulli_loss,0))
 
         # do we want to take the sum or mean???
         return torch.mean(loss, 0)
