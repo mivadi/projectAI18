@@ -13,13 +13,7 @@ def train(epoch, train_loader, model, optimizer):
         optimizer.zero_grad()
         recon_batch, z, z_parameters = model(data)
         loss = model.total_loss(data.view(-1, 784), recon_batch, z, z_parameters)
-        # if epoch == 2:
-        #     for item in model.parameters():
-        #         print("before backward", item.data)
         loss.backward()
-        # if epoch == 2:
-        #     for item in model.parameters():
-        #         print("after backward", item.data)
         train_loss += loss.data
         optimizer.step()
         if batch_idx % 100 == 0:

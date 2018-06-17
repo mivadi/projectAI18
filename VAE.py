@@ -11,8 +11,14 @@ max_epsilon = 1.-1e-5
 class VAE(nn.Module):
     
 
-    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian'):
+    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian', rank1=True):
         super(VAE, self).__init__()
+
+        # set rank1 (boolean)
+        self.rank1 = rank1
+
+        # set latent dimension
+        self.latent_dim = latent_dim
 
         # set method: Gaussian, logit-normal, Gumbel-softmax/concrete
         self.method = method
@@ -26,11 +32,15 @@ class VAE(nn.Module):
         if self.method == 'Gaussian' or self.method == 'logit':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
             self.hidden2parameter2 = nn.Linear(hidden_dim, latent_dim)
+            if self.rank1:
+                self.hidden2parameter3 = nn.Linear(hidden_dim, latent_dim)
             self.encoder_activation = nn.Hardtanh(min_val=-4.5,max_val=0)
 
         elif self.method == 'logit-sigmoidal':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim-1)
             self.hidden2parameter2 = nn.Linear(hidden_dim, latent_dim-1)
+            if self.rank1:
+                self.hidden2parameter3 = nn.Linear(hidden_dim, latent_dim-1)
             self.encoder_activation = nn.Hardtanh(min_val=-4.5,max_val=0.)
 
         elif self.method == 'Gumbel':
@@ -58,8 +68,13 @@ class VAE(nn.Module):
         # find parameters for model of latent variable
         if self.method != 'Gumbel':
             mean = self.hidden2parameter1(hidden)
-            variance = self.encoder_activation(self.hidden2parameter2(hidden))
-            return (mean, variance)
+            if self.rank1:
+                log_diff = self.encoder_activation(self.hidden2parameter2(hidden))
+                approx = self.hidden2parameter3(hidden)
+                return (mean, log_diff, approx)
+            else:
+                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
+                return (mean, logvar)
         else:            
             log_location =  F.logsigmoid(self.hidden2parameter1(hidden))
             return log_location
@@ -70,10 +85,19 @@ class VAE(nn.Module):
         self._valid_method()
 
         if self.method == 'Gaussian':
-            (mean, logvar) = parameters
-            epsilon = torch.FloatTensor(logvar.size()).normal_()
-            std = torch.exp(torch.div(logvar, 2))
-            z = mean + epsilon * std
+            if self.rank1:
+                (mean, log_diff, approx) = parameters
+                epsilon = torch.FloatTensor(mean.size()).normal_()
+                diff = torch.exp(log_diff)
+                diff_matrix = torch.stack([ torch.diag(d) for d in torch.unbind(diff)])
+                cov_matrix = diff_matrix + torch.bmm( approx.unsqueeze(2), approx.unsqueeze(1) )
+                Sigma = torch.stack([ torch.potrf(m) for m in cov_matrix ] )
+                z = mean + torch.bmm(Sigma, epsilon.unsqueeze(2)).view(-1, self.latent_dim)
+            else:
+                (mean, logvar) = parameters
+                epsilon = torch.FloatTensor(logvar.size()).normal_()
+                std = torch.exp(torch.div(logvar, 2))
+                z = mean + epsilon * std
 
         elif self.method == 'logit':
             (mean, logvar) = parameters
@@ -146,8 +170,18 @@ class VAE(nn.Module):
     def log_q_z(self, z, parameters):
 
         if self.method == 'Gaussian':
-            (mean, logvar) = parameters
-            log_distr = -0.5 * ( logvar + torch.pow(z - mean, 2) / torch.exp(logvar) )
+            if self.rank1:
+                (mean, log_diff, approx) = parameters
+                diff = torch.exp(log_diff)
+                diff_matrix = torch.stack([ torch.diag(d) for d in torch.unbind(diff)])
+                cov_matrix = diff_matrix + torch.bmm( approx.unsqueeze(2), approx.unsqueeze(1) )
+                log_det_cov_matrix = torch.log(torch.stack([ torch.det(m) for m in torch.unbind(cov_matrix) ])) 
+                inverse_cov_matrix = torch.stack([ torch.inverse(m) for m in torch.unbind(cov_matrix)])
+                z_minus_mean = z - mean
+                log_distr = - 0.5 * ( log_det_cov_matrix + torch.bmm(z_minus_mean.unsqueeze(1), torch.bmm( inverse_cov_matrix, z_minus_mean.unsqueeze(2) ) ).view(-1, 1) )
+            else:
+                (mean, logvar) = parameters
+                log_distr = - 0.5 * ( logvar + torch.pow(z - mean, 2) / torch.exp(logvar) )
 
         elif self.method == 'logit':
             (mean, logvar) = parameters
@@ -186,6 +220,8 @@ class VAE(nn.Module):
         log_bernoulli_loss = self.log_bernoulli_loss(x, x_mean)
         KL_loss = self.KL_loss(z, z_parameters)
         loss = log_bernoulli_loss + KL_loss
+
+        print(torch.mean(log_bernoulli_loss,0))
 
         # do we want to take the sum or mean???
         return torch.mean(loss, 0)
