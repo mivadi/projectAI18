@@ -21,7 +21,6 @@ class VAE(nn.Module):
         # initialize first hidden layer for encoder:
         self.input2hidden = nn.Linear(data_dim ,hidden_dim)
 
-
         # initialize hidden layers and define activation function:
 
         if self.method == 'Gaussian' or self.method == 'logit':
@@ -36,7 +35,7 @@ class VAE(nn.Module):
 
         elif self.method == 'Gumbel':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
-            self.temperature = torch.Tensor([10]) # try different values??? look up in paper????
+            self.temperature = torch.Tensor([10])
 
         # initialize layers for decoder:
         self.latent2hidden = nn.Linear(latent_dim, hidden_dim)
@@ -53,65 +52,50 @@ class VAE(nn.Module):
 
         self._valid_method()
 
-        # print("x1", x)
+        # find hidden layer
+        hidden = F.tanh(self.input2hidden(x))
 
-        x = self.input2hidden(x)
-
-        # print("x2", x)
-
-        x = F.tanh(x)
-
-        # print("x3", x)
-
-        parameter1 = self.hidden2parameter1(x)
-
+        # find parameters for model of latent variable
         if self.method != 'Gumbel':
-            parameter2 = self.encoder_activation(self.hidden2parameter2(x))
-            return (parameter1, parameter2)
-        else:
-            # print("parameter1", parameter1)
-            
-            sig =  F.logsigmoid(parameter1)
-            # print("parameter1_sig", sig)
-            return sig
+            mean = self.hidden2parameter1(hidden)
+            variance = self.encoder_activation(self.hidden2parameter2(hidden))
+            return (mean, variance)
+        else:            
+            log_location =  F.logsigmoid(self.hidden2parameter1(hidden))
+            return log_location
 
 
     def reparameterize(self, parameters):
 
-        # repa built in
-        # gumbel softmax
-
         self._valid_method()
 
         if self.method == 'Gaussian':
-            (parameter1, parameter2) = parameters
-            # parameter1 = mean, parameter2 = logvar
-            epsilon = torch.FloatTensor(parameter2.size()).normal_()
-            std = torch.exp(torch.div(parameter2, 2))
-            z = parameter1 + epsilon * std
+            (mean, logvar) = parameters
+            epsilon = torch.FloatTensor(logvar.size()).normal_()
+            std = torch.exp(torch.div(logvar, 2))
+            z = mean + epsilon * std
 
         elif self.method == 'logit':
-            (parameter1, parameter2) = parameters
-            epsilon = torch.FloatTensor(parameter2.size()).normal_()
-            std = torch.exp(torch.div(parameter2, 2))
-            exp_y = torch.exp(parameter1 + epsilon * std)
+            (mean, logvar) = parameters
+            epsilon = torch.FloatTensor(logvar.size()).normal_()
+            std = torch.exp(torch.div(logvar, 2))
+            exp_y = torch.exp(mean + epsilon * std)
             z = exp_y / ( exp_y + 1 )
 
         elif self.method == 'logit-sigmoidal':
-            (parameter1, parameter2) = parameters
-            epsilon = torch.FloatTensor(parameter2.size()).normal_()
-            std = torch.exp(torch.div(parameter2, 2))
-            y = parameter1 + epsilon * std
+            (mean, logvar) = parameters
+            epsilon = torch.FloatTensor(logvar.size()).normal_()
+            std = torch.exp(torch.div(logvar, 2))
+            y = mean + epsilon * std
             numerator = torch.exp(y)
             denominator = 1 + torch.sum(numerator, 1).unsqueeze(1)
             z = torch.div(torch.cat((numerator, torch.ones((numerator.size(0),1))), 1), denominator)
 
         elif self.method == 'Gumbel':
-            parameter1 = parameters
-            # parameter1 = log location, parameter2 = temperature/lambda
+            log_location = parameters
             gumbel_distr = d.gumbel.Gumbel(0, 1)
-            epsilon = gumbel_distr.sample(sample_shape=parameter1.size())
-            numerator = torch.exp(torch.div(parameter1 + epsilon, self.temperature))
+            epsilon = gumbel_distr.sample(sample_shape=log_location.size())
+            numerator = torch.exp(torch.div(log_location + epsilon, self.temperature))
             # denominator = torch.sum(numerator, 1).unsqueeze(1)
             # z = torch.div(numerator, denominator)
             z = numerator
@@ -149,17 +133,11 @@ class VAE(nn.Module):
             log_distr = -0.5 * torch.pow(variable, 2 )
 
         elif self.method == 'Gumbel':
-            # uniform location: 1/k
-            # temperature: 1
             k = torch.Tensor([z.size(1)])
-            log_pi = torch.log( 1 / k )
-            # print ('logpi', log_pi)
+            log_location = torch.log( 1 / k )
             log_z = torch.log(z)
-            # print ('logz', log_z)
-            logsumexp = torch.log( torch.sum( torch.exp( log_pi - log_z ) , 1 ) )
-            # print ('logsumexp', logsumexp)
-            log_distr = k - 1 - k * logsumexp + torch.sum( log_pi - 2 * log_z , 1 )
-            # print('logdistr', log_distr)
+            logsumexp = torch.log( torch.sum( torch.exp( log_location - log_z ) , 1 ) )
+            log_distr = k - 1 - k * logsumexp + torch.sum( log_location - 2 * log_z , 1 )
             log_distr = log_distr.unsqueeze(1)
 
         return torch.sum(log_distr, 1)
@@ -168,28 +146,25 @@ class VAE(nn.Module):
     def log_q_z(self, z, parameters):
 
         if self.method == 'Gaussian':
-            (parameter1, parameter2) = parameters
-            # cov matrix is a diag matrix
-            # param 1 = mean
-            # param 2 = logvar
-            log_distr = -0.5 * ( parameter2 + torch.pow(z - parameter1, 2) / torch.exp(parameter2) )
+            (mean, logvar) = parameters
+            log_distr = -0.5 * ( logvar + torch.pow(z - mean, 2) / torch.exp(logvar) )
 
         elif self.method == 'logit':
-            (parameter1, parameter2) = parameters
+            (mean, logvar) = parameters
             variable = torch.log(torch.div( z, 1-z ))
-            log_distr = -0.5 * ( parameter2 + torch.pow(variable - parameter1, 2) / torch.exp(parameter2) )
+            log_distr = -0.5 * ( logvar + torch.pow(variable - mean, 2) / torch.exp(logvar) )
 
         elif self.method == 'logit-sigmoidal':
-            (parameter1, parameter2) = parameters
+            (mean, logvar) = parameters
             variable = torch.log(torch.div(z[:, :-1], z[:,-1].unsqueeze(1)))
-            log_distr = -0.5 * ( parameter2 + torch.pow(variable - parameter1, 2) / torch.exp(parameter2) )
+            log_distr = -0.5 * ( logvar + torch.pow(variable - mean, 2) / torch.exp(logvar) )
 
         elif self.method == 'Gumbel':
-            log_pi = parameters
+            log_location = parameters
             log_z = torch.log(z)
-            logsumexp = torch.log(torch.sum(torch.exp(log_pi - self.temperature * log_z ), 1) )
+            logsumexp = torch.log(torch.sum(torch.exp(log_location - self.temperature * log_z ), 1) )
             k = torch.Tensor([z.size(1)])
-            log_distr = (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum(log_pi + (self.temperature + 1) * log_z, 1)
+            log_distr = (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum(log_location + (self.temperature + 1) * log_z, 1)
             log_distr = log_distr.unsqueeze(1)
             
         return torch.sum(log_distr, 1)
@@ -222,10 +197,6 @@ class VAE(nn.Module):
         parameters = self.encode(x)
         z = self.reparameterize(parameters)
         x_mean = self.decode(z)
-        # print("parameters", parameters.data)
-        # print("z", z.data)
-        # print("x_mean", x_mean.data)
-
 
         return x_mean, z, parameters
 
