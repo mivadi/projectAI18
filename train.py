@@ -28,13 +28,13 @@ def train(epoch, train_loader, model, optimizer):
     return average_loss
 
 
-def run_train(latent_dim, epochs, method, train_loader, lr):
+def run_train(latent_dim, epochs, method, train_loader, lr, rank1=False):
     # set learning rate, batch size and number of epochs
     sample_dim = 784
     hidden_dim = 300
 
     # Init model
-    model = VAE(sample_dim, hidden_dim, latent_dim, method)
+    model = VAE(sample_dim, hidden_dim, latent_dim, method, rank1)
 
     # Init optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)

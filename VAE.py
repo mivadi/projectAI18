@@ -11,7 +11,7 @@ max_epsilon = 1.-1e-5
 class VAE(nn.Module):
     
 
-    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian', rank1=True):
+    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian', rank1=False):
         super(VAE, self).__init__()
 
         # set rank1 (boolean)
@@ -32,15 +32,13 @@ class VAE(nn.Module):
         if self.method == 'Gaussian' or self.method == 'logit':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
             self.hidden2parameter2 = nn.Linear(hidden_dim, latent_dim)
-            if self.rank1:
+            if self.rank1 and self.method == 'logit':
                 self.hidden2parameter3 = nn.Linear(hidden_dim, latent_dim)
             self.encoder_activation = nn.Hardtanh(min_val=-4.5,max_val=0)
 
         elif self.method == 'logit-sigmoidal':
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim-1)
             self.hidden2parameter2 = nn.Linear(hidden_dim, latent_dim-1)
-            if self.rank1:
-                self.hidden2parameter3 = nn.Linear(hidden_dim, latent_dim-1)
             self.encoder_activation = nn.Hardtanh(min_val=-4.5,max_val=0.)
 
         elif self.method == 'Gumbel':
@@ -68,7 +66,7 @@ class VAE(nn.Module):
         # find parameters for model of latent variable
         if self.method != 'Gumbel':
             mean = self.hidden2parameter1(hidden)
-            if self.rank1:
+            if self.rank1 and self.method == 'logit':
                 logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 approx = self.hidden2parameter3(hidden)
                 return (mean, logvar, approx)
@@ -81,33 +79,13 @@ class VAE(nn.Module):
 
 
     @staticmethod
-    def create_inverse_cov_matrix(logvar, approx):
+    def create_factor_cov_matrix(logvar, approx):
 
-        diff = torch.exp(logvar)
-        diff_matrix = torch.stack([ torch.diag(d) for d in torch.unbind(diff) ])
-        inv_cov_matrix = diff_matrix + torch.bmm( approx.unsqueeze(2), approx.unsqueeze(1) )
+        var = torch.exp(logvar)
+        var_matrix = torch.stack([ torch.diag(d) for d in torch.unbind(var) ])
+        factor_cov_matrix = var_matrix + torch.bmm( approx.unsqueeze(2), approx.unsqueeze(1) )
 
-        return inv_cov_matrix
-
-    # def create_eigen_decomposition(matrices):
-
-    #     eigen_vectors, eigen_values = [], []
-
-    #     for m in matrices:
-    #         e, v = torch.eig(m, eigenvectors=True)
-    #         eigenvectors.append(v)
-    #         eigen_values.append(e)
-
-    #     eigen_vectors = torch.stack(eigen_vectors)
-    #     eigen_values = torch.stack(eigen_values)
-
-    #     return eigen_vectors, eigen_values
-
-    # def create_factorization():
-
-    #     eigen_vectors, eigen_values = 
-
-    #     return Sigma
+        return factor_cov_matrix
 
 
     def reparameterize(self, parameters):
@@ -115,25 +93,27 @@ class VAE(nn.Module):
         self._valid_method()
 
         if self.method == 'Gaussian':
+            (mean, logvar) = parameters
+            epsilon = torch.FloatTensor(logvar.size()).normal_()
+            std = torch.exp(torch.div(logvar, 2))
+            z = mean + epsilon * std
+
+        elif self.method == 'logit':
             if self.rank1:
                 (mean, logvar, approx) = parameters
                 epsilon = torch.FloatTensor(mean.size()).normal_()
-                cov_matrix = torch.stack([ torch.inverse(m) for m in torch.unbind(VAE.create_inverse_cov_matrix(logvar, approx)) ])
+                Sigma = VAE.create_factor_cov_matrix(logvar, approx)
+                # cov_matrix = torch.stack([ torch.inverse(m) for m in torch.unbind(VAE.create_inverse_cov_matrix(logvar, approx)) ])
                 # computes the Cholesky decomposition cov_matrix = Sigma.T @ Sigma = Sigma @ Sigma.T
-                Sigma = torch.stack([ torch.potrf(m) for m in cov_matrix ])
-                z = mean + torch.bmm(Sigma, epsilon.unsqueeze(2)).view(-1, self.latent_dim)
+                # Sigma = torch.stack([ torch.potrf(m) for m in cov_matrix ])
+                exp_y = torch.exp(mean + torch.bmm(Sigma, epsilon.unsqueeze(2)).view(-1, self.latent_dim))
+                z = exp_y / ( exp_y + 1 )
             else:
                 (mean, logvar) = parameters
                 epsilon = torch.FloatTensor(logvar.size()).normal_()
                 std = torch.exp(torch.div(logvar, 2))
-                z = mean + epsilon * std
-
-        elif self.method == 'logit':
-            (mean, logvar) = parameters
-            epsilon = torch.FloatTensor(logvar.size()).normal_()
-            std = torch.exp(torch.div(logvar, 2))
-            exp_y = torch.exp(mean + epsilon * std)
-            z = exp_y / ( exp_y + 1 )
+                exp_y = torch.exp(mean + epsilon * std)
+                z = exp_y / ( exp_y + 1 )
 
         elif self.method == 'logit-sigmoidal':
             (mean, logvar) = parameters
@@ -199,20 +179,22 @@ class VAE(nn.Module):
     def log_q_z(self, z, parameters):
 
         if self.method == 'Gaussian':
+            (mean, logvar) = parameters
+            log_distr = - 0.5 * ( logvar + torch.pow(z - mean, 2) / torch.exp(logvar) )
+
+        elif self.method == 'logit':
+            variable = torch.log(torch.div( z, 1-z ))
             if self.rank1:
                 (mean, logvar, approx) = parameters
-                inverse_cov_matrix = VAE.create_inverse_cov_matrix(logvar, approx)
+                Sigma = VAE.create_factor_cov_matrix(logvar, approx)
+                cov_matrix = torch.bmm(Sigma, torch.transpose(Sigma, 1, 2))
+                inverse_cov_matrix = torch.stack([ torch.inverse(m) for m in torch.unbind(cov_matrix) ])
                 log_det_cov_matrix = torch.log(torch.stack([ torch.det(m) for m in torch.unbind(inverse_cov_matrix) ])) 
-                z_minus_mean = z - mean
+                z_minus_mean = variable - mean
                 log_distr = 0.5 * ( log_det_cov_matrix - torch.bmm(z_minus_mean.unsqueeze(1), torch.bmm( inverse_cov_matrix, z_minus_mean.unsqueeze(2) ) ).view(-1, 1) )
             else:
                 (mean, logvar) = parameters
-                log_distr = - 0.5 * ( logvar + torch.pow(z - mean, 2) / torch.exp(logvar) )
-
-        elif self.method == 'logit':
-            (mean, logvar) = parameters
-            variable = torch.log(torch.div( z, 1-z ))
-            log_distr = -0.5 * ( logvar + torch.pow(variable - mean, 2) / torch.exp(logvar) )
+                log_distr = -0.5 * ( logvar + torch.pow(variable - mean, 2) / torch.exp(logvar) )
 
         elif self.method == 'logit-sigmoidal':
             (mean, logvar) = parameters
