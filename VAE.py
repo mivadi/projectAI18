@@ -5,8 +5,8 @@ from torch.nn import functional as F
 import numpy as np
 
 # global variables
-min_epsilon = 1e-5
-max_epsilon = 1.-1e-5
+min_epsilon = 1e-7
+max_epsilon = 1.-1e-7
 
 class VAE(nn.Module):
     
@@ -68,7 +68,7 @@ class VAE(nn.Module):
             mean = self.hidden2parameter1(hidden)
             if self.rank1 and self.method == 'logit':
                 logvar = self.encoder_activation(self.hidden2parameter2(hidden))
-                approx = self.hidden2parameter3(hidden)
+                approx = F.sigmoid(self.hidden2parameter3(hidden))
                 return (mean, logvar, approx)
             else:
                 logvar = self.encoder_activation(self.hidden2parameter2(hidden))
@@ -238,6 +238,7 @@ class VAE(nn.Module):
         x = x.view(-1, 784)
         parameters = self.encode(x)
         z = self.reparameterize(parameters)
+        z = torch.clamp(z, min=min_epsilon, max=max_epsilon)
         x_mean = self.decode(z)
 
         return x_mean, z, parameters
