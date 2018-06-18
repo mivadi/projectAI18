@@ -238,7 +238,10 @@ class VAE(nn.Module):
         x = x.view(-1, 784)
         parameters = self.encode(x)
         z = self.reparameterize(parameters)
-        z = torch.clamp(z, min=min_epsilon, max=max_epsilon)
+        if self.method == 'logit' or self.method == 'logit-sigmoidal':
+            z = torch.clamp(z, min=min_epsilon, max=max_epsilon)
+        elif self.method == 'Gumbel':
+            z = torch.clamp(z, min=min_epsilon)
         x_mean = self.decode(z)
 
         return x_mean, z, parameters
