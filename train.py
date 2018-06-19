@@ -3,18 +3,23 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 from torch import nn, optim
 from VAE import *
+# from VAE_different_kl import *
 import numpy as np
 
 def train(epoch, train_loader, model, optimizer):
     model.train()
     train_loss = 0
+    KL_losses = 0
+    log_bernoulli_losses = 0
     for batch_idx, (data, _) in enumerate(train_loader):
         data = Variable(data)
         optimizer.zero_grad()
         recon_batch, z, z_parameters = model(data)
-        loss = model.total_loss(data.view(-1, 784), recon_batch, z, z_parameters)
+        loss, KL_loss, log_bernoulli_loss = model.total_loss(data.view(-1, 784), recon_batch, z, z_parameters)
         loss.backward()
         train_loss += loss.data
+        KL_losses += KL_loss
+        log_bernoulli_losses += log_bernoulli_loss
         optimizer.step()
         if batch_idx % 100 == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -23,9 +28,12 @@ def train(epoch, train_loader, model, optimizer):
                 loss.data / len(data)))
 
     average_loss = train_loss / len(train_loader.dataset)
-    print('====> Epoch: {} Average loss: {:.4f}'.format( epoch, average_loss))
+    average_KL_loss = KL_losses / len(train_loader.dataset)
+    average_log_bernoulli_loss = log_bernoulli_losses / len(train_loader.dataset)
 
-    return average_loss
+    print('====> Epoch: {} Average loss: {:.4f}'.format( epoch, average_loss ))
+
+    return average_loss, average_KL_loss, average_log_bernoulli_loss
 
 
 def run_train(latent_dim, epochs, method, train_loader, lr, rank1=False):
@@ -41,8 +49,16 @@ def run_train(latent_dim, epochs, method, train_loader, lr, rank1=False):
 
     # Train
     all_losses = []
+    KL_losses = []
+    log_bernoulli_losses = []
     for epoch in range(1, epochs + 1):
-        average_loss = train(epoch, train_loader, model, optimizer)
+        average_loss, average_KL_loss, average_log_bernoulli_loss = train(epoch, train_loader, model, optimizer)
         all_losses.append(average_loss)
+        KL_losses.append(average_KL_loss)
+        log_bernoulli_losses.append(average_log_bernoulli_loss)
 
-    return model, all_losses
+    return model, all_losses, KL_losses, log_bernoulli_losses
+
+
+
+

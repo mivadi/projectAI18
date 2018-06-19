@@ -74,7 +74,10 @@ class VAE(nn.Module):
                 logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 return (mean, logvar)
         else:            
-            log_location =  F.logsigmoid(self.hidden2parameter1(hidden))
+            # log_location =  F.logsigmoid(self.hidden2parameter1(hidden))
+            parameter1 =  F.normalize( F.sigmoid(self.hidden2parameter1(hidden)),p=1 )
+            parameter1 = torch.clamp(parameter1, min=min_epsilon, max=max_epsilon)
+            log_location = torch.log(parameter1)
             return log_location
 
 
@@ -170,7 +173,7 @@ class VAE(nn.Module):
             log_location = torch.log( 1 / k )
             log_z = torch.log(z)
             logsumexp = torch.log( torch.sum( torch.exp( log_location - log_z ) , 1 ) )
-            log_distr = k - 1 - k * logsumexp + torch.sum( log_location - 2 * log_z , 1 )
+            log_distr = - k * logsumexp + torch.sum( log_location - 2 * log_z , 1 )
             log_distr = log_distr.unsqueeze(1)
 
         return torch.sum(log_distr, 1)
@@ -229,8 +232,7 @@ class VAE(nn.Module):
         KL_loss = self.KL_loss(z, z_parameters)
         loss = log_bernoulli_loss + KL_loss
 
-        # do we want to take the sum or mean???
-        return torch.mean(loss, 0)
+        return torch.mean(loss, 0), torch.mean(KL_loss, 0), torch.mean(log_bernoulli_loss, 0)
 
 
     def forward(self, x):
