@@ -33,7 +33,7 @@ def train(epoch, train_loader, model, optimizer):
 
     print('====> Epoch: {} Average loss: {:.4f}'.format( epoch, average_loss ))
 
-    return average_loss, average_KL_loss, average_log_bernoulli_loss
+    return average_loss, average_KL_loss, average_log_bernoulli_loss, z
 
 
 def run_train(latent_dim, epochs, method, train_loader, lr, rank1=False):
@@ -52,12 +52,12 @@ def run_train(latent_dim, epochs, method, train_loader, lr, rank1=False):
     KL_losses = []
     log_bernoulli_losses = []
     for epoch in range(1, epochs + 1):
-        average_loss, average_KL_loss, average_log_bernoulli_loss = train(epoch, train_loader, model, optimizer)
+        average_loss, average_KL_loss, average_log_bernoulli_loss, z = train(epoch, train_loader, model, optimizer)
         all_losses.append(average_loss)
         KL_losses.append(average_KL_loss)
         log_bernoulli_losses.append(average_log_bernoulli_loss)
 
-    return model, all_losses, KL_losses, log_bernoulli_losses
+    return model, all_losses, z, KL_losses, log_bernoulli_losses
 
 
 
