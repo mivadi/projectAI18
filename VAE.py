@@ -63,7 +63,7 @@ class VAE(nn.Module):
         self._valid_method()
 
         # find hidden layer
-        hidden = F.tanh(self.input2hidden(x))
+        hidden = F.softplus(self.input2hidden(x))
 
         # find parameters for model of latent variable
         if self.method != 'Gumbel':
@@ -152,7 +152,7 @@ class VAE(nn.Module):
 
     def decode(self, z):
 
-        z = F.tanh(self.latent2hidden(z))
+        z = F.softplus(self.latent2hidden(z))
 
         return F.sigmoid(self.hidden2output(z))
 
@@ -240,13 +240,12 @@ class VAE(nn.Module):
     def log_bernoulli_loss(self, x, x_mean):
         """
         Negative log Bernoulli loss
-
         """
         probs = torch.clamp(x_mean, min=min_epsilon, max=max_epsilon)
         loss = torch.sum(x * torch.log(probs) + (1 - x) *
                          (torch.log(1 - probs)), 1)
 
-        return - torch.sum(loss)
+        return - loss
 
     def total_loss(self, x, x_mean, z, z_parameters):
 
