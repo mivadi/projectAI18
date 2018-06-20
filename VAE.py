@@ -69,9 +69,11 @@ class VAE(nn.Module):
         if self.method != 'Gumbel':
             mean = self.hidden2parameter1(hidden)
             if self.rank1 and self.method == 'logit':
+                # CHECK: We should make this a hardtanh? How?
                 logvar = self.encoder_activation(
                     self.hidden2parameter2(hidden))
-                approx = F.sigmoid(self.hidden2parameter3(hidden))
+                # CHECK: Was a sigmoid, changed to tanh
+                approx = F.tanh(self.hidden2parameter3(hidden))
                 return (mean, logvar, approx)
             else:
                 logvar = self.encoder_activation(

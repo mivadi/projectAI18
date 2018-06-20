@@ -31,8 +31,7 @@ def train(epoch, train_loader, model, optimizer):
 
     average_loss = train_loss / len(train_loader.dataset)
     average_KL_loss = KL_losses / len(train_loader.dataset)
-    average_log_bernoulli_loss = log_bernoulli_losses / \
-        len(train_loader.dataset)
+    average_log_bernoulli_loss = log_bernoulli_losses / len(train_loader.dataset)
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, average_loss))
 
