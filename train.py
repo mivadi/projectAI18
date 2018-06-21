@@ -3,7 +3,6 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 from torch import nn, optim
 from VAE import *
-# from VAE_different_kl import *
 import numpy as np
 
 
@@ -14,6 +13,8 @@ def train(epoch, train_loader, model, optimizer):
     log_bernoulli_losses = 0
     for batch_idx, (data, _) in enumerate(train_loader):
         data = Variable(data)
+        # binarize data
+        data = torch.bernoulli(data)
         optimizer.zero_grad()
         recon_batch, z, z_parameters = model(data)
         loss, KL_loss, log_bernoulli_loss = model.total_loss(
@@ -27,11 +28,14 @@ def train(epoch, train_loader, model, optimizer):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader),
-                loss.data / len(data)))
+                loss.data))
 
-    average_loss = train_loss / len(train_loader.dataset)
-    average_KL_loss = KL_losses / len(train_loader.dataset)
-    average_log_bernoulli_loss = log_bernoulli_losses / len(train_loader.dataset)
+    average_loss = train_loss / len(train_loader)
+    average_KL_loss = KL_losses / len(train_loader)
+    average_log_bernoulli_loss = log_bernoulli_losses / len(train_loader)
+
+    print("av bernoulli", average_log_bernoulli_loss)
+    print("Av KL", average_KL_loss)
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, average_loss))
 
