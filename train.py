@@ -58,7 +58,7 @@ def run_train(latent_dim, epochs, method, train_data, lr, rank1=False):
     batch_size = 50
 
     # Init model
-    model = VAE(sample_dim, hidden_dim, latent_dim, method, rank1)
+    model = VAE(batch_size, sample_dim, hidden_dim, latent_dim, method, rank1)
 
     # Init optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)

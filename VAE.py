@@ -11,8 +11,8 @@ max_epsilon = 1. - 1e-7
 
 class VAE(nn.Module):
 
-    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian',
-                 rank1=False):
+    def __init__(self, batch_dim, data_dim, hidden_dim, latent_dim, method='Gaussian',
+                 rank1=False, logit_prior=1):
         super(VAE, self).__init__()
 
         # set rank1 (boolean)
@@ -20,10 +20,15 @@ class VAE(nn.Module):
 
         # set latent dimension
         self.latent_dim = latent_dim
+        self.batch_dim = batch_dim
 
         # set method: Gaussian, logit-normal, Gumbel-softmax/concrete
         self.method = method
         self._valid_method()
+
+        # initialize posterior and prior
+        self.posteriors = None
+        self.define_prior()
 
         # initialize first hidden layer for encoder:
         self.input2hidden = nn.Linear(data_dim, hidden_dim)
@@ -58,6 +63,20 @@ class VAE(nn.Module):
             self.method == 'logit-sigmoidal' or self.method == 'Gumbel', \
             method_unknown_text
 
+    def define_prior(self):
+
+        if self.method == 'Gaussian':
+            self.prior = None
+            # self.prior = d.multivariate_normal.MultivariateNormal(torch.zeros(self.latent_dim), covariance_matrix=torch.identy(self.latent_dim))
+
+        elif self.method == 'Gumbel':
+            temperature = torch.Tensor([1])
+            uniform_locations = (1./self.latent_dim) * torch.ones(self.latent_dim)
+            self.prior = d.relaxed_bernoulli.RelaxedBernoulli(temperature, probs=uniform_locations)
+        else:
+            self.prior = None
+
+
     def encode(self, x):
 
         self._valid_method()
@@ -69,10 +88,10 @@ class VAE(nn.Module):
         if self.method != 'Gumbel':
             mean = self.hidden2parameter1(hidden)
             if self.rank1 and self.method == 'logit':
-                # CHECK: We should make this a hardtanh? How?
+                # CHECK: We should make this a hardtanh? How? It is already done ;-)
                 logvar = self.encoder_activation(
                     self.hidden2parameter2(hidden))
-                # CHECK: Was a sigmoid, changed to tanh
+                # CHECK: Was a sigmoid, changed to tanh (try initilizing with -1)
                 approx = F.tanh(self.hidden2parameter3(hidden))
                 return (mean, logvar, approx)
             else:
@@ -80,13 +99,8 @@ class VAE(nn.Module):
                     self.hidden2parameter2(hidden))
                 return (mean, logvar)
         else:
-            # log_location =  F.logsigmoid(self.hidden2parameter1(hidden))
-            parameter1 = F.normalize(
-                F.sigmoid(self.hidden2parameter1(hidden)), p=1)
-            parameter1 = torch.clamp(
-                parameter1, min=min_epsilon, max=max_epsilon)
-            log_location = torch.log(parameter1)
-            return log_location
+            location = F.softplus(self.hidden2parameter1(hidden))
+            return location
 
     @staticmethod
     def create_factor_cov_matrix(logvar, approx):
@@ -103,7 +117,22 @@ class VAE(nn.Module):
         self._valid_method()
 
         if self.method == 'Gaussian':
-            (mean, logvar) = parameters
+            (location, logvar) = parameters
+
+            mean = location
+
+            location_unbind = torch.unbind(location)
+            covar = [torch.diag(torch.exp(torch.div(d, 2))) for d in torch.unbind(logvar)]
+
+            self.posteriors = [d.multivariate_normal.MultivariateNormal(location_unbind[i], covariance_matrix=covar[i]) for i in range(self.batch_dim)]
+
+            # z = torch.stack([self.posteriors[i].rsample() for i in range(self.batch_dim)])
+
+            # print(z_prime.size())
+
+
+
+
             epsilon = torch.FloatTensor(logvar.size()).normal_()
             std = torch.exp(torch.div(logvar, 2))
             z = mean + epsilon * std
@@ -141,14 +170,9 @@ class VAE(nn.Module):
                 (numerator.size(0), 1))), 1), denominator)
 
         elif self.method == 'Gumbel':
-            log_location = parameters
-            gumbel_distr = d.gumbel.Gumbel(0, 1)
-            epsilon = gumbel_distr.sample(sample_shape=log_location.size())
-            numerator = torch.exp(
-                torch.div(log_location + epsilon, self.temperature))
-            # denominator = torch.sum(numerator, 1).unsqueeze(1)
-            # z = torch.div(numerator, denominator)
-            z = numerator
+            locations = parameters
+            self.posteriors = [d.relaxed_bernoulli.RelaxedBernoulli(self.temperature, probs=location) for location in torch.unbind(locations)]
+            z = torch.stack([self.posteriors[i].rsample() for i in range(self.batch_dim)])
 
         return z
 
@@ -169,33 +193,26 @@ class VAE(nn.Module):
     def log_p_z(self, z):
 
         if self.method == 'Gaussian':
-            log_distr = -0.5 * torch.pow(z, 2)
+            log_prob = -0.5 * torch.pow(z, 2)
 
         elif self.method == 'logit':
             variable = torch.log(torch.div(z, 1 - z))
-            log_distr = -0.5 * torch.pow(variable, 2)
+            log_prob = -0.5 * torch.pow(variable, 2)
 
         elif self.method == 'logit-sigmoidal':
             variable = torch.log(torch.div(z[:, :-1], z[:, -1].unsqueeze(1)))
-            log_distr = -0.5 * torch.pow(variable, 2)
+            log_prob = -0.5 * torch.pow(variable, 2)
 
         elif self.method == 'Gumbel':
-            k = torch.Tensor([z.size(1)])
-            log_location = torch.log(1 / k)
-            log_z = torch.log(z)
-            logsumexp = torch.log(
-                torch.sum(torch.exp(log_location - log_z), 1))
-            log_distr = - k * logsumexp + \
-                torch.sum(log_location - 2 * log_z, 1)
-            log_distr = log_distr.unsqueeze(1)
+            log_prob = self.prior.log_prob(z)
 
-        return torch.sum(log_distr, 1)
+        return torch.sum(log_prob, 1)
 
     def log_q_z(self, z, parameters):
 
         if self.method == 'Gaussian':
             (mean, logvar) = parameters
-            log_distr = - 0.5 * \
+            log_prob = - 0.5 * \
                 (logvar + torch.pow(z - mean, 2) / torch.exp(logvar))
 
         elif self.method == 'logit':
@@ -209,35 +226,27 @@ class VAE(nn.Module):
                 log_det_cov_matrix = torch.log(torch.stack(
                     [torch.det(m) for m in torch.unbind(inverse_cov_matrix)]))
                 z_minus_mean = variable - mean
-                log_distr = 0.5 * (log_det_cov_matrix - torch.bmm(
+                log_prob = 0.5 * (log_det_cov_matrix - torch.bmm(
                     z_minus_mean.unsqueeze(1),
                     torch.bmm(inverse_cov_matrix,
                               z_minus_mean.unsqueeze(2))).view(-1, 1))
             else:
                 (mean, logvar) = parameters
-                log_distr = -0.5 * (logvar +
+                log_prob = -0.5 * (logvar +
                                     torch.pow(variable - mean, 2) /
                                     torch.exp(logvar))
 
         elif self.method == 'logit-sigmoidal':
             (mean, logvar) = parameters
             variable = torch.log(torch.div(z[:, :-1], z[:, -1].unsqueeze(1)))
-            log_distr = -0.5 * \
+            log_prob = -0.5 * \
                 (logvar + torch.pow(variable - mean, 2) / torch.exp(logvar))
 
         elif self.method == 'Gumbel':
-            log_location = parameters
-            log_z = torch.log(z)
-            logsumexp = torch.log(
-                torch.sum(torch.exp(log_location - self.temperature *
-                                    log_z), 1))
-            k = torch.Tensor([z.size(1)])
-            log_distr = (k - 1) * torch.log(self.temperature) - k * \
-                logsumexp + torch.sum(log_location +
-                                      (self.temperature + 1) * log_z, 1)
-            log_distr = log_distr.unsqueeze(1)
+            z_unbind = torch.unbind(z)
+            log_prob = torch.stack([self.posteriors[i].log_prob(z_unbind[i]) for i in range(self.batch_dim)])
 
-        return torch.sum(log_distr, 1)
+        return torch.sum(log_prob, 1)
 
     def log_bernoulli_loss(self, x, x_mean):
         """
