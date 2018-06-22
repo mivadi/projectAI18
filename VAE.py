@@ -34,6 +34,7 @@ class VAE(nn.Module):
 
         # initialize first hidden layer for encoder:
         self.input2hidden = nn.Linear(data_dim, hidden_dim)
+        self.hidden2hidden_en = nn.Linear(hidden_dim, hidden_dim)
 
         # initialize hidden layers and define activation function:
 
@@ -47,10 +48,11 @@ class VAE(nn.Module):
         elif self.method == 'Gumbel':
             self.encoder_activation = nn.Hardtanh(min_val=-4.5, max_val=0)
             self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
-            self.temperature = torch.Tensor([10])
+            self.temperature = torch.Tensor([0.5])
 
         # initialize layers for decoder:
         self.latent2hidden = nn.Linear(latent_dim, hidden_dim)
+        self.hidden2hidden_de = nn.Linear(hidden_dim, hidden_dim)
         self.hidden2output = nn.Linear(hidden_dim, data_dim)
 
     def _valid_method(self):
@@ -62,17 +64,9 @@ class VAE(nn.Module):
 
     def define_prior(self):
 
-        # if self.method == 'Gaussian':
-        #     self.prior = d.multivariate_normal.MultivariateNormal(torch.zeros(self.latent_dim), covariance_matrix=torch.eye(self.latent_dim))
-
         if self.rank1:
             covariance_matrix = self.variance * torch.eye(self.latent_dim)
             self.prior = d.multivariate_normal.MultivariateNormal(torch.zeros(self.latent_dim), covariance_matrix=covariance_matrix)
-
-        # elif self.method == 'Gumbel':
-        #     temperature = torch.Tensor([1])
-        #     uniform_locations = (1./self.latent_dim) * torch.ones(self.latent_dim)
-        #     self.prior = d.relaxed_bernoulli.RelaxedBernoulli(temperature, probs=uniform_locations)
         else:
             self.prior = None
 
@@ -82,25 +76,23 @@ class VAE(nn.Module):
         self._valid_method()
 
         # find hidden layer
-        hidden = F.softplus(self.input2hidden(x))
+        hidden1 = F.softplus(self.input2hidden(x))
+        hidden2 = F.softplus(self.hidden2hidden_en(hidden1))
 
         # find parameters for model of latent variable
         if self.method != 'Gumbel':
-            mean = self.hidden2parameter1(hidden)
+            mean = self.hidden2parameter1(hidden2)
             if self.rank1 and self.method == 'logit':
-                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
+                logvar = self.encoder_activation(self.hidden2parameter2(hidden2))
                 # CHECK: Was a sigmoid, changed to tanh (try initilizing with -1)
-                approx = F.tanh(self.hidden2parameter3(hidden))
+                approx = F.tanh(self.hidden2parameter3(hidden2))
                 return (mean, logvar, approx)
             else:
-                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
+                logvar = self.encoder_activation(self.hidden2parameter2(hidden2))
                 return (mean, logvar)
         else:
-            # location = F.softplus(self.hidden2parameter1(hidden))
-            # in this case locatiuon=logloc
-
-            location = self.encoder_activation(self.hidden2parameter1(hidden))
-            return location
+            log_location = self.encoder_activation(self.hidden2parameter1(hidden2))
+            return log_location
 
     @staticmethod
     def create_factor_cov_matrix(logvar, approx):
@@ -114,7 +106,6 @@ class VAE(nn.Module):
         one_hot_z = torch.zeros(z.size())
         for i, index in enumerate(indices.data):
             one_hot_z[i][index] = 1
-
         return one_hot_z
 
 
@@ -153,23 +144,18 @@ class VAE(nn.Module):
         elif self.method == 'Gumbel':
 
             log_location = parameters
-            # log_location = torch.log(parameters)
             gumbel_distr = d.gumbel.Gumbel(0, 1)
             epsilon = gumbel_distr.sample(sample_shape=log_location.size())
             z = log_location + epsilon
-            # z = self.one_hot(z)
-
-            # locations = parameters
-            # self.posteriors = [d.relaxed_bernoulli.RelaxedBernoulli(self.temperature, probs=location) for location in torch.unbind(locations)]
-            # z = torch.stack([self.posteriors[i].rsample() for i in range(self.batch_dim)])
 
         return z
 
     def decode(self, z):
 
-        z = F.softplus(self.latent2hidden(z))
+        hidden1 = F.softplus(self.latent2hidden(z))
+        hidden2 = F.softplus(self.hidden2hidden_de(hidden1))
 
-        return F.sigmoid(self.hidden2output(z))
+        return F.sigmoid(self.hidden2output(hidden2))
 
     def KL_loss(self, z, parameters):
 
@@ -195,7 +181,6 @@ class VAE(nn.Module):
             log_prob = -0.5 * torch.pow(variable, 2)
 
         elif self.method == 'Gumbel':
-            # log_prob = self.prior.log_prob(z)
 
             # define y and normalize
             y = torch.exp(z/self.temperature)
@@ -248,15 +233,11 @@ class VAE(nn.Module):
 
             # compute probability
             k = torch.Tensor([self.latent_dim])
-            # log_location = torch.log(parameters)
             log_location = parameters
             log_y = torch.log(y_norm)
             logsumexp = torch.log( torch.sum( torch.exp( log_location - self.temperature * log_y ) , 1 ) )
             log_prob =  (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum( log_location - ( self.temperature + 1 ) * log_y , 1 )
             log_prob = log_prob.unsqueeze(1)
-
-            # z_unbind = torch.unbind(z)
-            # log_prob = torch.stack([self.posteriors[i].log_prob(z_unbind[i]) for i in range(self.batch_dim)])
 
         return torch.sum(log_prob, 1)
 
@@ -275,9 +256,6 @@ class VAE(nn.Module):
         KL_loss = self.KL_loss(z, z_parameters)
         loss = log_bernoulli_loss + KL_loss
 
-        # print(loss)
-        # print(torch.mean(loss, 0))
-
         return torch.mean(loss, 0), torch.mean(KL_loss, 0), torch.mean(log_bernoulli_loss, 0)
 
     def forward(self, x):
@@ -287,8 +265,6 @@ class VAE(nn.Module):
         z = self.reparameterize(parameters)
         if self.method == 'logit':
             z = torch.clamp(z, min=min_epsilon, max=max_epsilon)
-        # elif self.method == 'Gumbel':
-        #     z = torch.clamp(z, min=min_epsilon)
         x_mean = self.decode(z)
 
         return x_mean, z, parameters
