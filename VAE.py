@@ -34,7 +34,6 @@ class VAE(nn.Module):
 
         # initialize first hidden layer for encoder:
         self.input2hidden = nn.Linear(data_dim, hidden_dim)
-        self.hidden2hidden_en = nn.Linear(hidden_dim, hidden_dim)
 
         # initialize hidden layers and define activation function:
 
@@ -52,7 +51,6 @@ class VAE(nn.Module):
 
         # initialize layers for decoder:
         self.latent2hidden = nn.Linear(latent_dim, hidden_dim)
-        self.hidden2hidden_de = nn.Linear(hidden_dim, hidden_dim)
         self.hidden2output = nn.Linear(hidden_dim, data_dim)
 
     def _valid_method(self):
@@ -76,22 +74,21 @@ class VAE(nn.Module):
         self._valid_method()
 
         # find hidden layer
-        hidden1 = F.softplus(self.input2hidden(x))
-        hidden2 = F.softplus(self.hidden2hidden_en(hidden1))
+        hidden = F.softplus(self.input2hidden(x))
 
         # find parameters for model of latent variable
         if self.method != 'Gumbel':
-            mean = self.hidden2parameter1(hidden2)
+            mean = self.hidden2parameter1(hidden)
             if self.rank1 and self.method == 'logit':
-                logvar = self.encoder_activation(self.hidden2parameter2(hidden2))
+                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 # CHECK: Was a sigmoid, changed to tanh (try initilizing with -1)
-                approx = F.tanh(self.hidden2parameter3(hidden2))
+                approx = F.tanh(self.hidden2parameter3(hidden))
                 return (mean, logvar, approx)
             else:
-                logvar = self.encoder_activation(self.hidden2parameter2(hidden2))
+                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 return (mean, logvar)
         else:
-            log_location = self.encoder_activation(self.hidden2parameter1(hidden2))
+            log_location = self.encoder_activation(self.hidden2parameter1(hidden))
             return log_location
 
     @staticmethod
@@ -152,10 +149,9 @@ class VAE(nn.Module):
 
     def decode(self, z):
 
-        hidden1 = F.softplus(self.latent2hidden(z))
-        hidden2 = F.softplus(self.hidden2hidden_de(hidden1))
+        z = F.softplus(self.latent2hidden(z))
 
-        return F.sigmoid(self.hidden2output(hidden2))
+        return F.sigmoid(self.hidden2output(z))
 
     def KL_loss(self, z, parameters):
 
