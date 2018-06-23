@@ -55,7 +55,7 @@ class VAE(nn.Module):
 
     def _valid_method(self):
 
-        method_unknown_text = "The method is unknown; choose 'Gaussian', 'logit', 'logit-sigmoidal' or 'Gumbel'."
+        method_unknown_text = "The method is unknown; choose 'Gaussian', 'logit', or 'Gumbel'."
         assert self.method == 'Gaussian' or self.method == 'logit' or self.method == 'Gumbel', method_unknown_text
 
     def define_prior(self):
@@ -179,7 +179,7 @@ class VAE(nn.Module):
 
             # IF BUILT IN MULTIVARIATE NORMAL
             if self.rank1:
-                log_prob = self.prior.log_prob(variable).unsqueeze(1)
+                log_prob = self.prior.log_prob(variable)
             else:
                 # ELSE: ONLY DO THIS LINE
                 log_prob = - 0.5 * ( self.latent_dim * torch.log(self.variance) + torch.div(torch.sum(torch.pow(variable, 2),1), self.variance) )

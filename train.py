@@ -19,6 +19,7 @@ def train(epoch, train_loader, model, optimizer):
         recon_batch, z, z_parameters = model(data)
         loss, KL_loss, log_bernoulli_loss = model.total_loss(
             data.view(-1, 784), recon_batch, z, z_parameters)
+        print(loss)
         loss.backward()
         train_loss += loss.data
         KL_losses += KL_loss
@@ -34,8 +35,8 @@ def train(epoch, train_loader, model, optimizer):
     average_KL_loss = KL_losses / len(train_loader)
     average_log_bernoulli_loss = log_bernoulli_losses / len(train_loader)
 
-    print("av bernoulli", average_log_bernoulli_loss)
-    print("Av KL", average_KL_loss)
+    print("Average Bernoulli loss", average_log_bernoulli_loss)
+    print("Average KL loss", average_KL_loss)
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, average_loss))
 
