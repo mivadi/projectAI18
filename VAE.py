@@ -11,8 +11,7 @@ max_epsilon = 1. - 1e-7
 
 class VAE(nn.Module):
 
-    def __init__(self, batch_dim, data_dim, hidden_dim, latent_dim, method='Gaussian',
-                 rank1=False, variance=1):
+    def __init__(self, data_dim, hidden_dim, latent_dim, method='Gaussian', rank1=False, variance=1):
         super(VAE, self).__init__()
 
         # set rank1 (boolean)
@@ -20,75 +19,73 @@ class VAE(nn.Module):
 
         # set latent dimension
         self.latent_dim = latent_dim
-        # self.batch_dim = batch_dim
 
         # set method: Gaussian, logit-normal, Gumbel-softmax/concrete
         self.method = method
         self._valid_method()
 
+        # set variance for prior in logit
+        self.variance = torch.Tensor([variance])
+
+        # IN CASE BUILT IN MULTIVARIATE FOR RANK1:
         # initialize posterior and prior
-        # self.posteriors = None
-        self.variance = variance
-        # self.define_prior()
-        
+        self.posteriors = None
+        self.define_prior()     
 
-        # initialize first hidden layer for encoder:
+        # initialize linear layers
         self.input2hidden = nn.Linear(data_dim, hidden_dim)
+        self.hidden2hidden_en = nn.Linear(hidden_dim, hidden_dim)
+        self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
 
-        # initialize hidden layers and define activation function:
-
+        # initialize layers for different models:
         if self.method == 'Gaussian' or self.method == 'logit':
-            self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
             self.hidden2parameter2 = nn.Linear(hidden_dim, latent_dim)
             if self.rank1 and self.method == 'logit':
                 self.hidden2parameter3 = nn.Linear(hidden_dim, latent_dim)
-            self.encoder_activation = nn.Hardtanh(min_val=-4.5, max_val=0)
-
         elif self.method == 'Gumbel':
-            self.encoder_activation = nn.Hardtanh(min_val=-4.5, max_val=0)
-            self.hidden2parameter1 = nn.Linear(hidden_dim, latent_dim)
             self.temperature = torch.Tensor([0.5])
+
+        # initialize activation function
+        self.encoder_activation = nn.Hardtanh(min_val=-4.5, max_val=0)
 
         # initialize layers for decoder:
         self.latent2hidden = nn.Linear(latent_dim, hidden_dim)
+        self.hidden2hidden_de = nn.Linear(hidden_dim, hidden_dim)
         self.hidden2output = nn.Linear(hidden_dim, data_dim)
 
     def _valid_method(self):
 
-        method_unknown_text = "The method is unknown; choose 'Gaussian', " \
-            "'logit', 'logit-sigmoidal' or 'Gumbel'."
-        assert self.method == 'Gaussian' or self.method == 'logit' or \
-            self.method == 'Gumbel', method_unknown_text
+        method_unknown_text = "The method is unknown; choose 'Gaussian', 'logit', 'logit-sigmoidal' or 'Gumbel'."
+        assert self.method == 'Gaussian' or self.method == 'logit' or self.method == 'Gumbel', method_unknown_text
 
     def define_prior(self):
 
-        if False:
+        if self.rank1:
             covariance_matrix = self.variance * torch.eye(self.latent_dim)
             self.prior = d.multivariate_normal.MultivariateNormal(torch.zeros(self.latent_dim), covariance_matrix=covariance_matrix)
         else:
             self.prior = None
-
 
     def encode(self, x):
 
         self._valid_method()
 
         # find hidden layer
-        hidden = F.softplus(self.input2hidden(x))
+        hidden1 = F.tanh(self.input2hidden(x))
+        hidden2 = F.softplus(self.hidden2hidden_en(hidden1))
 
         # find parameters for model of latent variable
         if self.method != 'Gumbel':
-            mean = self.hidden2parameter1(hidden)
+            mean = self.hidden2parameter1(hidden2)
+            logvar = self.encoder_activation(self.hidden2parameter2(hidden2))
             if self.rank1 and self.method == 'logit':
-                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 # CHECK: Was a sigmoid, changed to tanh (try initilizing with -1)
-                approx = F.tanh(self.hidden2parameter3(hidden))
+                approx = F.tanh(self.hidden2parameter3(hidden2))
                 return (mean, logvar, approx)
             else:
-                logvar = self.encoder_activation(self.hidden2parameter2(hidden))
                 return (mean, logvar)
         else:
-            log_location = self.encoder_activation(self.hidden2parameter1(hidden))
+            log_location = self.encoder_activation(self.hidden2parameter1(hidden2))
             return log_location
 
     @staticmethod
@@ -98,13 +95,13 @@ class VAE(nn.Module):
         factor_cov_matrix = var_matrix + torch.bmm(approx.unsqueeze(2), approx.unsqueeze(1))
         return factor_cov_matrix
 
+    # we dont use this method on the moment
     def one_hot(self, z):
         indices = z.argmax(dim=1)
         one_hot_z = torch.zeros(z.size())
         for i, index in enumerate(indices.data):
             one_hot_z[i][index] = 1
         return one_hot_z
-
 
     def reparameterize(self, parameters):
 
@@ -121,27 +118,25 @@ class VAE(nn.Module):
 
                 (location, logvar, approx) = parameters
 
-                # batch_dim = location.size(0)
-
+                # THIS IS WITH BUILT IN MULTIVARIATE NORMAL: BACKWARD NOT WORKING
+                batch_dim = location.size(0)
+                location_unbind = torch.unbind(location)
                 Sigma = VAE.create_factor_cov_matrix(logvar, approx)
-
-                # try with built in
-
-                factor = torch.stack([ torch.potrf(m) for m in torch.unbind(Sigma) ])
-
-                # location_unbind = torch.unbind(location)
-                # covar = torch.unbind(Sigma)
-                # self.posteriors = [d.multivariate_normal.MultivariateNormal(location_unbind[i], covariance_matrix=covar[i]) for i in range(batch_dim)]
-                # z = torch.stack([self.posteriors[i].rsample() for i in range(batch_dim)])
-
-                mean = location
-                epsilon = torch.FloatTensor(mean.size()).normal_()
-                exp_y = torch.exp(mean + torch.bmm(factor, epsilon.unsqueeze(2)).view(-1, self.latent_dim))
+                covar = torch.unbind(Sigma)
+                self.posteriors = [d.multivariate_normal.MultivariateNormal(location_unbind[i], covariance_matrix=covar[i]) for i in range(batch_dim)]
+                y = torch.stack([self.posteriors[i].rsample() for i in range(batch_dim)])
+                exp_y = torch.exp(y)
                 z = exp_y / (exp_y + 1)
-                print("min z", z.min(1))
-                print("max z", z.max(1))
-                print("mean z", torch.mean(z,1))
-                print("median z", torch.median(z,1))
+
+                # HANDMADE:
+                # Sigma = VAE.create_factor_cov_matrix(logvar, approx)
+                # factor = torch.stack([ torch.potrf(m) for m in torch.unbind(Sigma) ]) # case2: delete this line and replace factor by Sigma
+                # mean = location
+                # epsilon = torch.FloatTensor(mean.size()).normal_()
+                # exp_y = torch.exp(mean + torch.bmm(factor, epsilon.unsqueeze(2)).view(-1, self.latent_dim))
+                # z = exp_y / (exp_y + 1)
+
+                # case 2: we first create matrix Sigma= D + aa^T. Then we define cov matrix by Sigma @ Sigma.T
 
             else:
                 (mean, logvar) = parameters
@@ -149,10 +144,6 @@ class VAE(nn.Module):
                 std = torch.exp(torch.div(logvar, 2))
                 exp_y = torch.exp(mean + epsilon * std)
                 z = exp_y / (exp_y + 1)
-                print("min z", z.min(1))
-                print("max z", z.max(1))
-                print("mean z", torch.mean(z,1))
-                print("median z", torch.median(z,1))
 
         elif self.method == 'Gumbel':
 
@@ -165,22 +156,15 @@ class VAE(nn.Module):
 
     def decode(self, z):
 
-        z = F.softplus(self.latent2hidden(z))
+        hidden1 = F.tanh(self.latent2hidden(z))
+        hidden2 = F.softplus(self.hidden2hidden_de(hidden1))
 
-        return F.sigmoid(self.hidden2output(z))
+        return F.sigmoid(self.hidden2output(hidden2))
 
     def KL_loss(self, z, parameters):
 
-        # if self.rank1:
-        #     KL_loss = torch.stack([d.kl.kl_divergence(self.posteriors[i], self.prior) for i in range(self.batch_dim)])
-
-        #     print(KL_loss.size())
-        # else:
         log_p_z = self.log_p_z(z)
         log_q_z = self.log_q_z(z, parameters)
-
-        print("p", log_p_z)
-        print("q", log_q_z)
         KL_loss = - (log_p_z - log_q_z)
 
         return KL_loss
@@ -188,12 +172,17 @@ class VAE(nn.Module):
     def log_p_z(self, z):
 
         if self.method == 'Gaussian':
-            log_prob = -0.5 * torch.pow(z, 2)
+            log_prob = torch.sum(-0.5 * torch.pow(z, 2),1)
 
         elif self.method == 'logit':
-            # log_prob = self.prior.log_prob(z).unsqueeze(1)
             variable = torch.log(torch.div(z, 1 - z))
-            log_prob = -0.5 * torch.pow(variable, 2)
+
+            # IF BUILT IN MULTIVARIATE NORMAL
+            if self.rank1:
+                log_prob = self.prior.log_prob(variable).unsqueeze(1)
+            else:
+                # ELSE: ONLY DO THIS LINE
+                log_prob = - 0.5 * ( self.latent_dim * torch.log(self.variance) + torch.div(torch.sum(torch.pow(variable, 2),1), self.variance) )
 
         elif self.method == 'Gumbel':
 
@@ -207,10 +196,8 @@ class VAE(nn.Module):
             log_y = torch.log(y_norm)
             logsumexp = torch.log( torch.sum( torch.exp( log_location - self.temperature * log_y ) , 1 ) )
             log_prob =  (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum( log_location - ( self.temperature + 1 ) * log_y , 1 )
-            log_prob = log_prob.unsqueeze(1)
 
-
-        return torch.sum(log_prob, 1)
+        return log_prob
 
     def log_q_z(self, z, parameters):
 
@@ -222,21 +209,22 @@ class VAE(nn.Module):
             variable = torch.log(torch.div(z, 1 - z))
             if self.rank1:
 
-                # batch_dim = z.size(0)
-                # z_unbind = torch.unbind(z)
-                # log_prob = torch.stack([self.posteriors[i].log_prob(z_unbind[i]) for i in range(batch_dim)])
-                # log_prob = log_prob.unsqueeze(1)
+                # IF BUILT IN MULTIVARIATE NORMAL
+                batch_dim = z.size(0)
+                z_unbind = torch.unbind(variable)
+                log_prob = torch.stack([self.posteriors[i].log_prob(z_unbind[i]) for i in range(batch_dim)])
+                log_prob = log_prob.unsqueeze(1)
 
-                (mean, logvar, approx) = parameters
-                cov_matrix = VAE.create_factor_cov_matrix(logvar, approx)
-                # cov_matrix = torch.bmm(Sigma, torch.transpose(Sigma, 1, 2))
-                # precision_matrix = torch.stack([posterior.precision_matrix() for posterior in self.posteriors])
+                # HANDMADE:
+                # (mean, logvar, approx) = parameters
+                # cov_matrix = VAE.create_factor_cov_matrix(logvar, approx) # call this Sigma in case 2
+                # # cov_matrix = torch.bmm(Sigma, torch.transpose(Sigma, 1, 2)) # in case 2 (see reparametrize)
+                # cov_matrix_unbind = torch.unbind(cov_matrix)
+                # precision_matrix = torch.stack([torch.inverse(m) for m in cov_matrix_unbind])
+                # log_det_cov_matrix = torch.log(torch.stack([torch.det(m) for m in cov_matrix_unbind]))
+                # z_minus_mean = variable - mean
+                # log_prob = - 0.5 * (log_det_cov_matrix + torch.bmm( z_minus_mean.unsqueeze(1), torch.bmm(precision_matrix, z_minus_mean.unsqueeze(2))).view(-1, 1))
 
-                cov_matrix_unbind = torch.unbind(cov_matrix)
-                precision_matrix = torch.stack([torch.inverse(m) for m in cov_matrix_unbind])
-                log_det_cov_matrix = torch.log(torch.stack([torch.det(m) for m in cov_matrix_unbind]))
-                z_minus_mean = variable - mean
-                log_prob = - 0.5 * (log_det_cov_matrix + torch.bmm( z_minus_mean.unsqueeze(1), torch.bmm(precision_matrix, z_minus_mean.unsqueeze(2))).view(-1, 1))
             else:
                 (mean, logvar) = parameters
                 log_prob = -0.5 * (logvar + torch.pow(variable - mean, 2) / torch.exp(logvar))

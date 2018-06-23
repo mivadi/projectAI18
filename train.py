@@ -54,7 +54,7 @@ def binarize(data, seed):
     return data
 
 
-def run_train(latent_dim, epochs, method, train_data, lr, rank1=False):
+def run_train(latent_dim, epochs, method, train_data, lr, rank1=False, variance=1):
 
     # set learning rate, batch size and number of epochs
     sample_dim = 784
@@ -62,7 +62,7 @@ def run_train(latent_dim, epochs, method, train_data, lr, rank1=False):
     batch_size = 50
 
     # Init model
-    model = VAE(batch_size, sample_dim, hidden_dim, latent_dim, method, rank1)
+    model = VAE(sample_dim, hidden_dim, latent_dim, method, rank1, variance)
 
     # Init optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)
