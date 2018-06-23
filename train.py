@@ -19,7 +19,7 @@ def train(epoch, train_loader, model, optimizer):
         recon_batch, z, z_parameters = model(data)
         loss, KL_loss, log_bernoulli_loss = model.total_loss(
             data.view(-1, 784), recon_batch, z, z_parameters)
-        print(loss)
+        #print(loss)
         loss.backward()
         train_loss += loss.data
         KL_losses += KL_loss

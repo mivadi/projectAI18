@@ -231,7 +231,14 @@ class VAE(nn.Module):
                 precision_matrix = torch.stack([torch.inverse(m) for m in cov_matrix_unbind])
                 log_det_cov_matrix = torch.log(torch.stack([torch.det(m) for m in cov_matrix_unbind]))
                 z_minus_mean = variable - mean
-                log_prob = - 0.5 * (log_det_cov_matrix + torch.bmm( z_minus_mean.unsqueeze(1), torch.bmm(precision_matrix, z_minus_mean.unsqueeze(2))).view(-1, 1))
+              
+                #print ('log_det_cov_matrix', log_det_cov_matrix.size() ) 
+                #print('zminusMean', torch.mean(z_minus_mean), 1)
+                vecprod = torch.bmm( torch.bmm(z_minus_mean.unsqueeze(1), precision_matrix), z_minus_mean.unsqueeze(2)).squeeze(1)
+                vecprod = torch.sum(vecprod,1) 
+                log_prob = - 0.5 * (log_det_cov_matrix + vecprod)
+                #print('log_prob', torch.mean(torch.sum(log_prob, 1)) )
+                log_prob = log_prob.unsqueeze(1)
 
             else:
                 (mean, logvar) = parameters
@@ -260,7 +267,6 @@ class VAE(nn.Module):
         """
         probs = torch.clamp(x_mean, min=min_epsilon, max=max_epsilon)
         loss = - torch.sum(x * torch.log(probs) + (1 - x) * (torch.log(1 - probs)), 1)
-
         return loss
 
     def total_loss(self, x, x_mean, z, z_parameters):
