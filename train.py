@@ -75,6 +75,7 @@ def run_train(latent_dim, epochs, method, train_data, lr, rank1=False, variance=
     for epoch in range(1, epochs + 1):
         # binarize data
         seed = np.random.randint(1, 5000)
+        torch.manualSeed(seed)
         # Choose one of these for binarization
         # train_data_binary = binarize(train_data, seed)
         train_data_binary = train_data
