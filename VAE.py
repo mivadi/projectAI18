@@ -59,14 +59,12 @@ class VAE(nn.Module):
         assert self.method == 'Gaussian' or self.method == 'logit' or self.method == 'Gumbel', method_unknown_text
 
     def define_prior(self):
-
-        # if False:
-        #     covariance_matrix = self.variance * torch.eye(self.latent_dim)
-        #     self.prior = d.multivariate_normal.MultivariateNormal(torch.zeros(self.latent_dim), covariance_matrix=covariance_matrix)
-        # # elif self.method == 'Gumbel':
-        # #     self.prior = d.relaxed
-        # else:
-        self.prior = None
+        if self.method == 'Gumbel':
+            temperature = torch.Tensor([1.])
+            uniform = torch.log( 1. / torch.Tensor([self.latent_dim]) ) * torch.ones(self.latent_dim)
+            self.prior = d.relaxed_categorical.ExpRelaxedCategorical(temperature, logits=uniform)
+        else:
+            self.prior = None
 
     def encode(self, x):
 
@@ -87,7 +85,8 @@ class VAE(nn.Module):
             else:
                 return (mean, logvar)
         else:
-            log_location = self.encoder_activation(self.hidden2parameter1(hidden2))
+            # log_location = self.encoder_activation(self.hidden2parameter1(hidden2))
+            log_location = self.hidden2parameter1(hidden2)
             return log_location
 
     @staticmethod
@@ -151,12 +150,8 @@ class VAE(nn.Module):
                 z = exp_y / (exp_y + 1)
 
         elif self.method == 'Gumbel':
-
-            log_location = parameters
-            gumbel_distr = d.gumbel.Gumbel(0, 1)
-            epsilon = gumbel_distr.sample(sample_shape=log_location.size())
-            z_unnorm = torch.exp(( log_location + epsilon ) /self.temperature)
-            z = torch.div(z_unnorm, torch.sum(z_unnorm, 1).unsqueeze(1))
+            self.posteriors = [d.relaxed_categorical.ExpRelaxedCategorical(self.temperature, logits=parameter) for parameter in torch.unbind(parameters)]
+            z = torch.stack([posterior.rsample() for posterior in self.posteriors])
 
         return z
 
@@ -191,19 +186,7 @@ class VAE(nn.Module):
             log_prob = - 0.5 * ( self.latent_dim * torch.log(self.variance) + torch.div(torch.sum(torch.pow(variable, 2),1), self.variance) )
 
         elif self.method == 'Gumbel':
-
-            # define y and normalize
-
-            # y = torch.exp(z/self.temperature)
-            # y_norm = torch.div(y, torch.sum(y, 1).unsqueeze(1))
-
-            # compute probability
-            y_norm = z
-            k = torch.Tensor([self.latent_dim])
-            log_location = torch.log( 1 / k )
-            log_y = torch.log(y_norm)
-            logsumexp = torch.log( torch.sum( torch.exp( log_location - self.temperature * log_y ) , 1 ) )
-            log_prob =  (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum( log_location - ( self.temperature + 1 ) * log_y , 1 )
+            log_prob = self.prior.log_prob(z)
 
         return log_prob
 
@@ -231,33 +214,16 @@ class VAE(nn.Module):
                 precision_matrix = torch.stack([torch.inverse(m) for m in cov_matrix_unbind])
                 log_det_cov_matrix = torch.log(torch.stack([torch.det(m) for m in cov_matrix_unbind]))
                 z_minus_mean = variable - mean
-              
-                #print ('log_det_cov_matrix', log_det_cov_matrix.size() ) 
-                #print('zminusMean', torch.mean(z_minus_mean), 1)
-                vecprod = torch.bmm( torch.bmm(z_minus_mean.unsqueeze(1), precision_matrix), z_minus_mean.unsqueeze(2)).squeeze(1)
-                vecprod = torch.sum(vecprod,1) 
-                log_prob = - 0.5 * (log_det_cov_matrix + vecprod)
-                #print('log_prob', torch.mean(torch.sum(log_prob, 1)) )
-                log_prob = log_prob.unsqueeze(1)
+                log_prob = - 0.5 * (log_det_cov_matrix + torch.bmm( z_minus_mean.unsqueeze(1), torch.bmm(precision_matrix, z_minus_mean.unsqueeze(2))).view(-1, 1))
 
             else:
                 (mean, logvar) = parameters
                 log_prob = -0.5 * (logvar + torch.pow(variable - mean, 2) / torch.exp(logvar))
 
         elif self.method == 'Gumbel':
-
-            # define y and normalize
-            # y = torch.exp(z/self.temperature)
-            # y_norm = torch.div(y, torch.sum(y, 1).unsqueeze(1))
-            y_norm = z
-
-            # compute probability
-            k = torch.Tensor([self.latent_dim])
-            log_location = parameters
-            log_y = torch.log(y_norm)
-            logsumexp = torch.log( torch.sum( torch.exp( log_location - self.temperature * log_y ) , 1 ) )
-            log_prob =  (k-1) * torch.log(self.temperature) - k * logsumexp + torch.sum( log_location - ( self.temperature + 1 ) * log_y , 1 )
-            log_prob = log_prob.unsqueeze(1)
+            batch_dim = z.size(0)
+            z_unbind = torch.unbind(z)
+            log_prob = torch.stack([self.posteriors[i].log_prob(z_unbind[i]) for i in range(batch_dim)])
 
         return torch.sum(log_prob, 1)
 
@@ -265,8 +231,10 @@ class VAE(nn.Module):
         """
         Negative log Bernoulli loss
         """
+
         probs = torch.clamp(x_mean, min=min_epsilon, max=max_epsilon)
         loss = - torch.sum(x * torch.log(probs) + (1 - x) * (torch.log(1 - probs)), 1)
+
         return loss
 
     def total_loss(self, x, x_mean, z, z_parameters):
