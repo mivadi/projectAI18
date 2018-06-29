@@ -37,7 +37,6 @@ def train(epoch, train_loader, model, optimizer):
     print("av bernoulli", average_log_bernoulli_loss)
     print("Av KL", average_KL_loss)
 
-
     print('====> Epoch: {} Average loss: {:.4f}'.format(epoch, average_loss))
 
     return average_loss, average_KL_loss, average_log_bernoulli_loss, z
@@ -55,7 +54,7 @@ def binarize(data, seed):
     return data
 
 
-def run_train(latent_dim, epochs, method, train_data, lr, rank1=False, variance=1):
+def run_train(latent_dim, epochs, method, train_data, lr, variance=1):
 
     # set learning rate, batch size and number of epochs
     sample_dim = 784
@@ -63,7 +62,7 @@ def run_train(latent_dim, epochs, method, train_data, lr, rank1=False, variance=
     batch_size = 50
 
     # Init model
-    model = VAE(sample_dim, hidden_dim, latent_dim, method, rank1, variance)
+    model = VAE(sample_dim, hidden_dim, latent_dim, method, variance)
 
     # Init optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -75,11 +74,8 @@ def run_train(latent_dim, epochs, method, train_data, lr, rank1=False, variance=
     for epoch in range(1, epochs + 1):
         # binarize data
         seed = np.random.randint(1, 5000)
-        torch.manualSeed(seed)
-        # Choose one of these for binarization
-        # train_data_binary = binarize(train_data, seed)
-        train_data_binary = train_data
-        train_loader = torch.utils.data.DataLoader(train_data_binary,
+        torch.manual_seed(seed)
+        train_loader = torch.utils.data.DataLoader(train_data,
                                                    batch_size=batch_size,
                                                    shuffle=True, **{})
 
